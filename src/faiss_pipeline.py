@@ -39,27 +39,59 @@ class FaissMultiModalSearch:
             self.trained = True
 
     def search(self, emb, top_k=5):
-        emb = np.array(emb).reshape(1, -1).astype('float32')
-        D, I = self.index.search(emb, top_k)
-        results = []
-        for idx in I[0]:
-            if idx < len(self.meta):
-                results.append(self.meta[idx])
-        return results
+        try:
+            emb = np.array(emb).reshape(1, -1).astype('float32')
+            D, I = self.index.search(emb, top_k)
+            results = []
+            for idx in I[0]:
+                if idx < len(self.meta):
+                    results.append(self.meta[idx])
+                else:
+                    print(f"⚠️ Warning: Index {idx} out of range (meta length: {len(self.meta)})")
+            return results
+        except Exception as e:
+            print(f"❌ Error in search: {e}")
+            print(f"   Index size: {self.index.ntotal}")
+            print(f"   Meta length: {len(self.meta)}")
+            raise
 
     def save(self):
-        faiss.write_index(self.index, self.index_path)
-        with open(self.meta_path, 'wb') as f:
-            pickle.dump(self.meta, f)
+        try:
+            faiss.write_index(self.index, self.index_path)
+            with open(self.meta_path, 'wb') as f:
+                pickle.dump(self.meta, f)
+            print(f"✅ Saved index to {self.index_path}")
+            print(f"✅ Saved metadata to {self.meta_path}")
+        except Exception as e:
+            print(f"❌ Error saving: {e}")
+            raise
 
     def load(self):
-        if os.path.exists(self.index_path):
-            self.index = faiss.read_index(self.index_path)
-            if self.use_ivfpq:
-                self.trained = self.index.is_trained
-        if os.path.exists(self.meta_path):
-            with open(self.meta_path, 'rb') as f:
-                self.meta = pickle.load(f)
+        try:
+            if os.path.exists(self.index_path):
+                self.index = faiss.read_index(self.index_path)
+                if self.use_ivfpq:
+                    self.trained = self.index.is_trained
+                print(f"✅ Loaded index from {self.index_path} (size: {self.index.ntotal})")
+            else:
+                print(f"❌ Index file not found: {self.index_path}")
+                raise FileNotFoundError(f"Index file not found: {self.index_path}")
+                
+            if os.path.exists(self.meta_path):
+                with open(self.meta_path, 'rb') as f:
+                    self.meta = pickle.load(f)
+                print(f"✅ Loaded metadata from {self.meta_path} (size: {len(self.meta)})")
+            else:
+                print(f"❌ Metadata file not found: {self.meta_path}")
+                raise FileNotFoundError(f"Metadata file not found: {self.meta_path}")
+                
+            # Kiểm tra tính nhất quán
+            if self.index.ntotal != len(self.meta):
+                print(f"⚠️ Warning: Index size ({self.index.ntotal}) != Meta size ({len(self.meta)})")
+                
+        except Exception as e:
+            print(f"❌ Error loading: {e}")
+            raise
 
 if __name__ == "__main__":
     # Ví dụ build index cho text với IVF+PQ

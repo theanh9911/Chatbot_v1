@@ -1,0 +1,20 @@
+IoT và Thành phố thông minh
+
+Internet of Things (IoT) là mạng lưới các thiết bị vật lý được nhúng với cảm biến, phần mềm và các công nghệ khác để kết nối và trao đổi dữ liệu với các thiết bị và hệ thống khác qua internet.
+
+Thành phố thông minh (Smart City) sử dụng công nghệ IoT để cải thiện hiệu quả hoạt động và chất lượng cuộc sống của người dân. Các thành phần chính bao gồm:
+
+- Giao thông thông minh: Hệ thống đèn giao thông tự động, quản lý bãi đỗ xe
+- Năng lượng thông minh: Lưới điện thông minh, tiết kiệm năng lượng
+- Y tế thông minh: Theo dõi sức khỏe từ xa, quản lý bệnh viện
+- An ninh thông minh: Camera giám sát, hệ thống cảnh báo
+- Môi trường thông minh: Giám sát chất lượng không khí, quản lý rác thải
+
+Các công nghệ hỗ trợ:
+- 5G và 6G
+- Edge Computing
+- AI và Machine Learning
+- Big Data Analytics
+- Cloud Computing
+
+TP.HCM đang triển khai nhiều dự án thành phố thông minh như hệ thống giao thông thông minh, quản lý nước thải và năng lượng xanh. 
