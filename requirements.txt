@@ -1,0 +1,29 @@
+# Xử lý tiếng Việt
+pyvi
+
+# Xử lý embedding văn bản, hình ảnh, audio
+sentence-transformers
+transformers
+torch
+pillow
+soundfile
+
+# Xử lý ảnh
+opencv-python
+
+# Xử lý audio
+librosa
+pydub
+
+# FAISS cho vector search
+faiss-cpu
+
+# API backend
+fastapi
+uvicorn
+
+# Frontend (React) - cài bằng npm, không cần trong requirements.txt
+
+# Khác (nếu cần)
+scikit-learn
+numpy
