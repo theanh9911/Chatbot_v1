@@ -43,9 +43,11 @@ class FaissMultiModalSearch:
             emb = np.array(emb).reshape(1, -1).astype('float32')
             D, I = self.index.search(emb, top_k)
             results = []
-            for idx in I[0]:
+            for i, idx in enumerate(I[0]):
                 if idx < len(self.meta):
-                    results.append(self.meta[idx])
+                    result = self.meta[idx].copy()  # Copy để không ảnh hưởng metadata gốc
+                    result['distance'] = float(D[0][i])  # Thêm distance vào kết quả
+                    results.append(result)
                 else:
                     print(f"⚠️ Warning: Index {idx} out of range (meta length: {len(self.meta)})")
             return results

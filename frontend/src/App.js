@@ -4,7 +4,6 @@ function App() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [file, setFile] = useState(null);
-  const [modal, setModal] = useState("text"); // "text", "image"
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -16,38 +15,37 @@ function App() {
     setResults([]);
 
     try {
-      if (modal === "text") {
-        if (!query.trim()) {
-          setError("Vui lòng nhập truy vấn");
-          setLoading(false);
-          return;
+      let allResults = [];
+      
+      // Thực hiện cả text search và image search nếu có input
+      if (query.trim()) {
+        console.log("🔍 Performing text search for:", query.trim());
+        try {
+          const textRes = await fetch("http://localhost:8001/search_text", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: query.trim(), top_k: 10 })
+          });
+          
+          const textData = await textRes.json();
+          console.log("📝 Text search response:", textData);
+          
+          if (textRes.ok && textData.matched_files) {
+            const textResults = textData.matched_files.map(item => ({
+              ...item,
+              type: "text",
+              source: "text_search"
+            }));
+            allResults.push(...textResults);
+            console.log("✅ Added", textResults.length, "text results");
+          }
+        } catch (err) {
+          console.log("❌ Text search error:", err);
         }
+      }
 
-        const res = await fetch("http://localhost:8001/search_text", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ query: query.trim(), top_k: 5 })
-        });
-        
-        const data = await res.json();
-        
-        if (!res.ok) {
-          throw new Error(data.detail || `HTTP error! status: ${res.status}`);
-        }
-        
-        if (data.matched_files && data.matched_files.length > 0) {
-          setResults(data.matched_files);
-          setSuccess(`Tìm thấy ${data.matched_files.length} kết quả`);
-        } else {
-          setError("Không tìm thấy kết quả nào");
-        }
-      } else if (modal === "image") {
-        if (!file) {
-          setError("Vui lòng chọn file ảnh");
-          setLoading(false);
-          return;
-        }
-
+      if (file) {
+        console.log("🖼️ Performing image search for:", file.name);
         // Kiểm tra kích thước file (max 10MB)
         if (file.size > 10 * 1024 * 1024) {
           setError("File quá lớn (tối đa 10MB)");
@@ -55,29 +53,64 @@ function App() {
           return;
         }
 
-        const formData = new FormData();
-        formData.append("file", file);
-        formData.append("top_k", "5");
-        
-        const res = await fetch("http://localhost:8001/search_image", {
-          method: "POST",
-          body: formData
-        });
-        
-        const data = await res.json();
-        
-        if (!res.ok) {
-          throw new Error(data.detail || `HTTP error! status: ${res.status}`);
-        }
-        
-        if (data.matched_files && data.matched_files.length > 0) {
-          setResults(data.matched_files);
-          setSuccess(`Tìm thấy ${data.matched_files.length} kết quả`);
-        } else {
-          setError("Không tìm thấy kết quả nào");
+        try {
+          const formData = new FormData();
+          formData.append("file", file);
+          formData.append("top_k", "10");
+          
+          const imageRes = await fetch("http://localhost:8001/search_image", {
+            method: "POST",
+            body: formData
+          });
+          
+          const imageData = await imageRes.json();
+          console.log("🖼️ Image search response:", imageData);
+          
+          if (imageRes.ok && imageData.matched_files) {
+            const imageResults = imageData.matched_files.map(item => ({
+              ...item,
+              type: "image",
+              source: "image_search"
+            }));
+            allResults.push(...imageResults);
+            console.log("✅ Added", imageResults.length, "image results");
+          } else {
+            console.log("❌ Image search failed:", imageRes.status, imageData);
+          }
+        } catch (err) {
+          console.log("❌ Image search error:", err);
         }
       }
+
+      console.log("📊 Total results before sorting:", allResults.length);
+      console.log("📋 All results:", allResults);
+
+      // Kiểm tra xem có input nào không
+      if (!query.trim() && !file) {
+        setError("Vui lòng nhập truy vấn hoặc chọn file ảnh");
+        setLoading(false);
+        return;
+      }
+
+      if (allResults.length === 0) {
+        setError("Không tìm thấy kết quả nào. Vui lòng thử lại với từ khóa hoặc ảnh khác.");
+        setLoading(false);
+        return;
+      }
+
+      // Sắp xếp theo score cao nhất
+      allResults.sort((a, b) => (b.score || 0) - (a.score || 0));
+      console.log("📊 Results after sorting:", allResults);
+      
+      // Lấy top 5 kết quả có score cao nhất
+      const topResults = allResults.slice(0, 5);
+      console.log("🏆 Top 5 results:", topResults);
+      
+      setResults(topResults);
+      setSuccess(`Tìm thấy ${topResults.length} kết quả (sắp xếp theo score)`);
+      
     } catch (err) {
+      console.log("❌ General error:", err);
       setError(`Lỗi: ${err.message}`);
     } finally {
       setLoading(false);
@@ -87,7 +120,7 @@ function App() {
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
-      if (modal === "image" && !selectedFile.type.startsWith("image/")) {
+      if (!selectedFile.type.startsWith("image/")) {
         setError("Vui lòng chọn file ảnh hợp lệ");
         return;
       }
@@ -97,8 +130,7 @@ function App() {
     }
   };
 
-  const handleModalChange = (newModal) => {
-    setModal(newModal);
+  const clearInput = () => {
     setQuery("");
     setFile(null);
     setResults([]);
@@ -123,106 +155,112 @@ function App() {
         borderRadius: 10,
         marginBottom: 20
       }}>
-        <h3 style={{ marginTop: 0 }}>Chọn loại tìm kiếm:</h3>
+        <h3 style={{ marginTop: 0 }}>🔍 Tìm kiếm thông minh:</h3>
+        <p style={{ color: "#666", marginBottom: 15 }}>
+          Nhập từ khóa để tìm kiếm văn bản HOẶC upload ảnh để tìm kiếm hình ảnh tương tự
+        </p>
+
+        {/* Text Input */}
         <div style={{ marginBottom: 15 }}>
-          <label style={{ marginRight: 20, cursor: "pointer" }}>
-            <input 
-              type="radio" 
-              checked={modal === "text"} 
-              onChange={() => handleModalChange("text")} 
-            /> 📝 Văn bản
-          </label>
-          <label style={{ cursor: "pointer" }}>
-            <input 
-              type="radio" 
-              checked={modal === "image"} 
-              onChange={() => handleModalChange("image")} 
-            /> 🖼️ Hình ảnh
-          </label>
+          <input
+            style={{ 
+              width: "100%", 
+              padding: "12px",
+              fontSize: "16px",
+              border: "1px solid #ddd",
+              borderRadius: "5px",
+              marginBottom: "10px"
+            }}
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Nhập từ khóa tìm kiếm..."
+            onKeyPress={e => e.key === "Enter" && handleSearch()}
+          />
         </div>
 
-        {modal === "text" && (
-          <div>
-            <input
-              style={{ 
-                width: "100%", 
-                padding: "10px",
-                fontSize: "16px",
-                border: "1px solid #ddd",
-                borderRadius: "5px"
-              }}
-              value={query}
-              onChange={e => setQuery(e.target.value)}
-              placeholder="Nhập truy vấn văn bản..."
-              onKeyPress={e => e.key === "Enter" && handleSearch()}
-            />
-          </div>
-        )}
+        {/* File Upload */}
+        <div style={{ marginBottom: 15 }}>
+          <input 
+            type="file" 
+            accept="image/*" 
+            onChange={handleFileChange}
+            style={{ 
+              width: "100%", 
+              padding: "10px",
+              border: "1px solid #ddd",
+              borderRadius: "5px"
+            }}
+          />
+          {file && (
+            <div style={{ marginTop: 10, fontSize: "14px", color: "#666" }}>
+              <p>📁 Đã chọn: {file.name}</p>
+              <p>📏 Kích thước: {(file.size / 1024 / 1024).toFixed(2)} MB</p>
+            </div>
+          )}
+        </div>
 
-        {modal === "image" && (
-          <div>
-            <input 
-              type="file" 
-              accept="image/*" 
-              onChange={handleFileChange}
-              style={{ 
-                width: "100%", 
-                padding: "10px",
-                border: "1px solid #ddd",
-                borderRadius: "5px"
-              }}
-            />
-            {file && (
-              <div style={{ marginTop: 10, fontSize: "14px", color: "#666" }}>
-                <p>📁 Đã chọn: {file.name}</p>
-                <p>📏 Kích thước: {(file.size / 1024 / 1024).toFixed(2)} MB</p>
-              </div>
-            )}
-          </div>
-        )}
+        {/* Action Buttons */}
+        <div style={{ display: "flex", gap: "10px" }}>
+          <button 
+            onClick={handleSearch} 
+            disabled={loading}
+            style={{ 
+              flex: 1,
+              padding: "12px 24px",
+              fontSize: "16px",
+              backgroundColor: loading ? "#ccc" : "#007bff",
+              color: "white",
+              border: "none",
+              borderRadius: "5px",
+              cursor: loading ? "not-allowed" : "pointer"
+            }}
+          >
+            {loading ? "⏳ Đang xử lý..." : "🔍 Tìm kiếm"}
+          </button>
+          
+          <button 
+            onClick={clearInput}
+            style={{ 
+              padding: "12px 16px",
+              fontSize: "16px",
+              backgroundColor: "#6c757d",
+              color: "white",
+              border: "none",
+              borderRadius: "5px",
+              cursor: "pointer"
+            }}
+          >
+            🗑️ Xóa
+          </button>
+        </div>
 
-        <button 
-          onClick={handleSearch} 
-          disabled={loading}
-          style={{ 
-            marginTop: 15,
-            padding: "12px 24px",
-            fontSize: "16px",
-            backgroundColor: loading ? "#ccc" : "#007bff",
-            color: "white",
-            border: "none",
+        {/* Status Messages */}
+        {error && (
+          <div style={{ 
+            marginTop: 15, 
+            padding: "10px", 
+            backgroundColor: "#f8d7da", 
+            color: "#721c24", 
             borderRadius: "5px",
-            cursor: loading ? "not-allowed" : "pointer",
-            width: "100%"
-          }}
-        >
-          {loading ? "⏳ Đang xử lý..." : "🔍 Tìm kiếm"}
-        </button>
+            border: "1px solid #f5c6cb"
+          }}>
+            ❌ {error}
+          </div>
+        )}
+
+        {success && (
+          <div style={{ 
+            marginTop: 15, 
+            padding: "10px", 
+            backgroundColor: "#d4edda", 
+            color: "#155724", 
+            borderRadius: "5px",
+            border: "1px solid #c3e6cb"
+          }}>
+            ✅ {success}
+          </div>
+        )}
       </div>
-
-      {error && (
-        <div style={{ 
-          backgroundColor: "#f8d7da", 
-          color: "#721c24", 
-          padding: "10px", 
-          borderRadius: "5px",
-          marginBottom: 20
-        }}>
-          ❌ {error}
-        </div>
-      )}
-
-      {success && (
-        <div style={{ 
-          backgroundColor: "#d4edda", 
-          color: "#155724", 
-          padding: "10px", 
-          borderRadius: "5px",
-          marginBottom: 20
-        }}>
-          ✅ {success}
-        </div>
-      )}
 
       {results.length > 0 && (
         <div style={{ 
@@ -246,9 +284,25 @@ function App() {
                   <p style={{ margin: 0 }}>{r}</p>
                 ) : (
                   <div>
-                    <p style={{ margin: "0 0 5px 0" }}>
-                      <strong>📄 File:</strong> {r.file || "N/A"}
-                    </p>
+                    <div style={{ 
+                      display: "flex", 
+                      justifyContent: "space-between", 
+                      alignItems: "center",
+                      marginBottom: "5px"
+                    }}>
+                      <p style={{ margin: "0 0 5px 0" }}>
+                        <strong>📄 File:</strong> {r.file || "N/A"}
+                      </p>
+                      <span style={{ 
+                        padding: "2px 8px", 
+                        borderRadius: "12px", 
+                        fontSize: "12px",
+                        backgroundColor: r.type === "text" ? "#e3f2fd" : "#fff3e0",
+                        color: r.type === "text" ? "#1976d2" : "#f57c00"
+                      }}>
+                        {r.type === "text" ? "📝 Text" : "🖼️ Image"}
+                      </span>
+                    </div>
                     {r.line && (
                       <p style={{ margin: "0 0 5px 0" }}>
                         <strong>📝 Dòng:</strong> {r.line}
@@ -288,7 +342,7 @@ function App() {
         <p>🚀 AI Challenge HCM - Hệ thống tìm kiếm thông minh đa phương tiện</p>
         <p>💡 Hỗ trợ: Văn bản tiếng Việt | Hình ảnh | Video frames</p>
         <p>🔧 API: http://localhost:8001</p>
-        <p>📊 Dữ liệu: {modal === "text" ? "4,313 dòng văn bản" : "1 video frame"}</p>
+        <p>📊 Dữ liệu: {file ? "20 video frames" : "41 text entries"}</p>
       </div>
     </div>
   );

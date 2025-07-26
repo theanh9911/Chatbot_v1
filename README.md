@@ -1,233 +1,475 @@
-# AI Challenge HCM - Hệ thống tìm kiếm đa phương thức
+# AI Challenge HCM - Multimodal Virtual Assistant
+
+Hệ thống tìm kiếm đa phương thức (text + image) sử dụng FAISS và AI models cho AI Challenge HCM 2025.
 
 ## 🎯 Tổng quan
 
-Hệ thống tìm kiếm đa phương thức (multimodal search) có khả năng tìm kiếm qua text, hình ảnh và video. Hệ thống sử dụng:
+Đây là hệ thống tìm kiếm thông minh có khả năng:
+- **Tìm kiếm văn bản** tiếng Việt với semantic search
+- **Tìm kiếm ảnh tương tự** dựa trên nội dung
+- **Kết hợp kết quả** từ nhiều nguồn dữ liệu
+- **Hiển thị điểm số** dựa trên độ tương đồng thực tế
+- **Hỗ trợ đa phương thức** (text, image, video frames)
 
-- **Text Embedding**: SentenceTransformer với model tiếng Việt
-- **Image Embedding**: CLIP model cho xử lý hình ảnh
-- **FAISS**: Facebook AI Similarity Search cho tìm kiếm nhanh
-- **FastAPI**: Backend API
-- **React**: Frontend giao diện
+## 🚀 Tính năng chính
 
-## 🚀 Khởi động nhanh
+### 1. Text Search (Tìm kiếm văn bản)
+- **Semantic search** với PhoBERT model tiếng Việt
+- **Vietnamese text preprocessing** với stopwords
+- **Tìm kiếm trong file text** (.txt files)
+- **Kết quả được sắp xếp** theo độ tương đồng
 
-### Cách 1: Sử dụng file batch (Khuyến nghị)
+### 2. Image Search (Tìm kiếm ảnh)
+- **CLIP model** cho image embedding
+- **FAISS vector search** cho tìm kiếm nhanh
+- **Hỗ trợ nhiều định dạng**: JPG, PNG, BMP
+- **Trích xuất frames từ video** (MP4, AVI, MOV)
+- **Hiển thị ảnh base64** trong kết quả
+
+### 3. Cross-modal Search (Tìm kiếm đa phương thức)
+- **Kết hợp text + image search**
+- **Tìm ảnh liên quan** khi search text
+- **Tìm text mô tả** khi search ảnh
+- **Unified scoring system**
+
+### 4. Real-time Scoring System
+- **Distance-based scoring** từ FAISS
+- **Sigmoid normalization** về thang điểm 0-100
+- **Score theo loại file**:
+  - Uploaded images: 100
+  - Static images: 90-80
+  - Video frames: 50-30
+  - Text content: 100-80
+
+## 🛠️ Cài đặt chi tiết
+
+### Yêu cầu hệ thống
+- **Python**: 3.8 hoặc cao hơn
+- **RAM**: Tối thiểu 4GB (khuyến nghị 8GB)
+- **Storage**: 2GB trống cho models và indexes
+- **OS**: Windows 10+, Linux, macOS
+
+### Bước 1: Clone repository
 ```bash
-# Chạy file batch để tự động setup và khởi động
-run_system.bat
+git clone https://github.com/your-username/ai-challenge-hcm.git
+cd ai-challenge-hcm/Chatbot
 ```
 
-### Cách 2: Chạy từng bước
+### Bước 2: Tạo virtual environment
 ```bash
-# 1. Tạo dữ liệu mẫu
-python create_sample_data.py
+# Windows
+python -m venv venv
+venv\Scripts\activate
 
-# 2. Build indexes
+# Linux/Mac
+python -m venv venv
+source venv/bin/activate
+```
+
+### Bước 3: Cài đặt dependencies
+```bash
+pip install -r requirements.txt
+```
+
+**Lưu ý**: Lần đầu cài đặt có thể mất 10-15 phút để download AI models.
+
+### Bước 4: Chuẩn bị dữ liệu
+```bash
+# Tạo thư mục dữ liệu
+mkdir -p data/text data/images data/vid data/audio
+
+# Thêm file text vào data/text/
+# Ví dụ: t1.txt, t2.txt, t3.txt
+
+# Thêm ảnh vào data/images/
+# Ví dụ: nấm.jpg, ai_ml.jpg, blockchain.jpg
+
+# Thêm video vào data/vid/
+# Ví dụ: ai_demo.mp4, presentation.mp4
+```
+
+### Bước 5: Build indexes
+```bash
 python src/build_index_fixed.py
+```
 
-# 3. Khởi động backend
+**Output mong đợi**:
+```
+🚀 Building indexes for AI Challenge HCM...
+📝 Building text index...
+📁 Found 3 text files: ['t1.txt', 't2.txt', 't3.txt']
+✅ Text index built successfully. Samples: 15, nlist: 4, use_ivfpq: False
+🖼️ Building image index from video frames...
+📹 Processing video: ai_demo.mp4 (120 frames, 4.0s)
+✅ Extracted 5 frames from ai_demo.mp4
+✅ Image index built successfully. Samples: 5, nlist: 2, use_ivfpq: False
+🖼️ Building image index from static images...
+🖼️ Processed image: nấm.jpg
+🖼️ Processed image: ai_ml.jpg
+✅ Static image index built successfully. Samples: 2, nlist: 1, use_ivfpq: False
+🎉 Index building completed!
+```
+
+### Bước 6: Chạy hệ thống
+
+#### Cách 1: Sử dụng script tự động (Khuyến nghị)
+```bash
+# Windows
+run_system.bat
+
+# Linux/Mac
+chmod +x run_system.sh
+./run_system.sh
+```
+
+#### Cách 2: Chạy thủ công
+```bash
+# Terminal 1: Backend API
 python -m uvicorn src.api:app --host 0.0.0.0 --port 8001 --reload
 
-# 4. Khởi động frontend (trong terminal khác)
+# Terminal 2: Frontend (nếu có)
 cd frontend
 npm install
 npm start
 ```
 
-## 📁 Cấu trúc dự án
+## 📁 Cấu trúc project
 
 ```
 Chatbot/
-├── data/                    # Dữ liệu
-│   ├── text/               # File text
-│   ├── vid/                # Hình ảnh và video
-│   └── audio/              # File audio
-├── src/                    # Backend code
-│   ├── api.py              # FastAPI endpoints
-│   ├── build_index_fixed.py # Build FAISS indexes
-│   ├── text_pipeline.py    # Text processing
-│   ├── image_pipeline.py   # Image processing
-│   └── faiss_pipeline.py   # FAISS operations
-├── frontend/               # React frontend
-│   └── src/
-│       └── App.js          # Main React component
-├── requirements.txt         # Python dependencies
-├── create_sample_data.py   # Tạo dữ liệu mẫu
-├── build_and_run.py        # Script khởi động hoàn chỉnh
-└── run_system.bat          # Batch file khởi động
+├── src/                    # Backend source code
+│   ├── api.py             # FastAPI endpoints
+│   ├── faiss_pipeline.py  # FAISS search engine
+│   ├── text_pipeline.py   # Text processing
+│   ├── image_pipeline.py  # Image processing
+│   ├── build_index_fixed.py # Index building
+│   └── __init__.py
+├── data/                  # Data directory
+│   ├── text/             # Text files (.txt)
+│   ├── images/           # Static images (.jpg, .png)
+│   ├── vid/              # Videos (.mp4, .avi)
+│   ├── audio/            # Audio files
+│   ├── faiss_text.bin    # Text search index
+│   ├── faiss_text.pkl    # Text metadata
+│   ├── faiss_image.bin   # Video frames index
+│   ├── faiss_image.pkl   # Video metadata
+│   ├── faiss_image_img.bin # Static images index
+│   └── faiss_image_img.pkl # Static images metadata
+├── frontend/             # React frontend
+├── venv/                 # Virtual environment
+├── README.md             # Documentation
+├── requirements.txt      # Python dependencies
+├── setup.py             # Package setup
+├── LICENSE              # MIT License
+├── .gitignore           # Git ignore rules
+├── run_system.bat       # Windows startup
+├── run_system.sh        # Linux/Mac startup
+└── vietnamese-stopwords-dash.txt # Vietnamese stopwords
 ```
 
-## 🎬 Dataset mẫu
+## 🔧 API Endpoints chi tiết
 
-Hệ thống bao gồm dataset mẫu về các chủ đề công nghệ:
-
-### Text Files
-- `t1.txt`: AI và Machine Learning
-- `t2.txt`: Blockchain và Tiền điện tử  
-- `t3.txt`: IoT và Thành phố thông minh
-
-### Images
-- `ai_ml.jpg`: Hình ảnh về AI
-- `blockchain.jpg`: Hình ảnh về Blockchain
-- `iot_smartcity.jpg`: Hình ảnh về IoT
-- `data_science.jpg`: Hình ảnh về Data Science
-
-### Video
-- `ai_demo.mp4`: Video demo về AI
-
-## 🔧 API Endpoints
-
-### Text Search
+### 1. Text Search
 ```bash
 POST /search_text
+Content-Type: application/json
+
 {
-  "query": "AI machine learning",
-  "top_k": 5
+  "query": "nấm",
+  "top_k": 10
 }
 ```
 
-### Image Search
+**Response**:
+```json
+{
+  "matched_files": [
+    {
+      "file": "t1.txt",
+      "line": 3,
+      "text": "Nấm là một loại thực phẩm giàu dinh dưỡng...",
+      "description": "Nấm là một loại thực phẩm giàu dinh dưỡng...",
+      "score": 85.2,
+      "type": "text"
+    }
+  ]
+}
+```
+
+### 2. Image Search
 ```bash
 POST /search_image
 Content-Type: multipart/form-data
-file: [image_file]
-top_k: 5
+
+file: <image_file>
+top_k: 10
 ```
 
-### Health Check
+**Response**:
+```json
+{
+  "matched_files": [
+    {
+      "file": "nấm.jpg",
+      "description": "Ảnh nấm.jpg",
+      "score": 95.8,
+      "type": "static_image",
+      "image_base64": "data:image/jpeg;base64,/9j/4AAQ..."
+    }
+  ]
+}
+```
+
+### 3. Health Check
 ```bash
 GET /health
 ```
 
-## 🎯 Tính năng chính
+**Response**:
+```json
+{
+  "status": "healthy",
+  "text_searcher": true,
+  "image_searcher": true,
+  "text_index_size": 15,
+  "image_index_size": 7
+}
+```
+
+### 4. Debug Endpoints
+```bash
+GET /debug/videos          # Kiểm tra video files
+GET /debug/static-images   # Kiểm tra static images
+```
+
+## 📊 Hệ thống điểm số (Scoring System)
+
+### Distance → Score Conversion
+Hệ thống sử dụng **FAISS distance** và chuyển đổi thành **score 0-100**:
+
+| Distance | Score | Mức độ tương đồng |
+|----------|-------|-------------------|
+| 0.0      | ~100  | Perfect match     |
+| 0.5      | ~82   | Very similar      |
+| 1.0      | ~73   | Similar           |
+| 2.0      | ~50   | Somewhat similar  |
+| 5.0      | ~5    | Less similar      |
+
+### Công thức chuyển đổi
+```python
+# Sigmoid function
+score = 1.0 / (1.0 + exp(distance - 2.0)) * 100
+
+# Linear fallback
+score = max(0, 100 - distance * 10)
+```
+
+### Loại kết quả và điểm số
+- **uploaded_image**: File upload (score: 100)
+- **static_image**: Ảnh từ database (score: 90-80)
+- **video_frame**: Frames từ video (score: 50-30)
+- **text**: Nội dung text (score: 100-80)
+
+## 🔍 Hướng dẫn sử dụng
 
 ### 1. Text Search
-- Tìm kiếm semantic trong các file text
-- Hỗ trợ tiếng Việt
-- Kết quả được sắp xếp theo độ tương đồng
+1. **Nhập từ khóa** vào ô tìm kiếm
+2. **Nhấn "Tìm kiếm"**
+3. **Xem kết quả**:
+   - Text content với score
+   - Ảnh liên quan (nếu có)
+   - Metadata chi tiết
 
 ### 2. Image Search
-- Tìm kiếm hình ảnh tương tự
-- Hỗ trợ nhiều định dạng: JPG, PNG, MP4
-- Trích xuất frame từ video
-- Hiển thị hình ảnh base64
+1. **Upload ảnh** muốn tìm kiếm
+2. **Nhấn "Tìm kiếm"**
+3. **Xem kết quả**:
+   - Ảnh tương tự từ database
+   - Video frames liên quan
+   - Score dựa trên similarity
 
-### 3. Unified Results
-- Kết quả kết hợp từ cả text và image
-- Hiển thị score tương đồng
-- Metadata chi tiết cho mỗi kết quả
+### 3. Combined Search
+1. **Nhập text** và **upload ảnh**
+2. **Nhấn "Tìm kiếm"**
+3. **Xem kết quả tổng hợp**:
+   - Text results
+   - Image results
+   - Unified scoring
 
-## 🛠️ Cài đặt
+## 🎯 Ví dụ sử dụng
 
-### Yêu cầu hệ thống
-- Python 3.8+
-- Node.js 14+
-- Git
+### Ví dụ 1: Tìm kiếm "nấm"
+```
+Input: "nấm"
+Results:
+- Text: "Nấm là thực phẩm giàu dinh dưỡng..." (Score: 85.2)
+- Image: nấm.jpg (Score: 95.8)
+- Video frame: Frame 3 từ video.mp4 (Score: 45.3)
+```
 
-### Dependencies
+### Ví dụ 2: Upload ảnh nấm
+```
+Input: Upload nấm.jpg
+Results:
+- Uploaded image: nấm.jpg (Score: 100.0)
+- Similar images: nấm_trắng.jpg (Score: 92.1)
+- Video frames: Frame 5 từ cooking.mp4 (Score: 78.4)
+```
 
-#### Python
+## 🐛 Troubleshooting
+
+### Lỗi thường gặp và cách khắc phục
+
+#### 1. "Text searcher not available"
+**Nguyên nhân**: Index chưa được build
+**Giải pháp**:
+```bash
+python src/build_index_fixed.py
+```
+
+#### 2. "Image searcher not available"
+**Nguyên nhân**: Image index bị lỗi
+**Giải pháp**:
+```bash
+# Kiểm tra file indexes
+ls data/faiss_image*.bin
+
+# Rebuild nếu cần
+python src/build_index_fixed.py
+```
+
+#### 3. "Math range error"
+**Nguyên nhân**: Distance quá lớn gây overflow
+**Giải pháp**: Đã được fix trong code mới, restart server
+
+#### 4. "Module not found"
+**Nguyên nhân**: Dependencies chưa cài đặt
+**Giải pháp**:
 ```bash
 pip install -r requirements.txt
 ```
 
-#### Node.js
-```bash
-cd frontend
-npm install
-```
+#### 5. Frontend không kết nối
+**Nguyên nhân**: CORS hoặc port issues
+**Giải pháp**:
+- Kiểm tra backend chạy trên port 8001
+- Kiểm tra CORS settings trong api.py
+- Restart cả frontend và backend
 
-## 🧪 Testing
+#### 6. "No results found"
+**Nguyên nhân**: Database trống hoặc query không phù hợp
+**Giải pháp**:
+- Kiểm tra dữ liệu trong data/
+- Thử query khác
+- Kiểm tra logs để debug
 
-### Test API
+### Debug Commands
 ```bash
+# Kiểm tra trạng thái hệ thống
+curl http://localhost:8001/health
+
+# Kiểm tra video files
+curl http://localhost:8001/debug/videos
+
+# Kiểm tra static images
+curl http://localhost:8001/debug/static-images
+
 # Test text search
 curl -X POST "http://localhost:8001/search_text" \
   -H "Content-Type: application/json" \
-  -d '{"query": "AI", "top_k": 3}'
-
-# Test image search
-curl -X POST "http://localhost:8001/search_image" \
-  -F "file=@data/vid/ai_ml.jpg" \
-  -F "top_k=3"
+  -d '{"query": "test", "top_k": 5}'
 ```
 
-### Test Frontend
-1. Mở http://localhost:3000
-2. Thử text search với từ khóa "AI", "blockchain", "IoT"
-3. Upload hình ảnh để test image search
-
-## 🔍 Debug và Troubleshooting
-
-### Kiểm tra trạng thái hệ thống
-```bash
-python check_status.py
-```
-
-### Logs
-- Backend logs: Terminal chạy uvicorn
-- Frontend logs: Terminal chạy npm start
-- Browser console: F12 trong trình duyệt
-
-### Các lỗi thường gặp
-
-#### 1. "Failed to fetch"
-- Kiểm tra backend có chạy không (port 8001)
-- Kiểm tra CORS settings
-
-#### 2. "Index not found"
-- Chạy lại `python src/build_index_fixed.py`
-- Kiểm tra file trong thư mục `data/`
-
-#### 3. "Module not found"
-- Cài đặt lại dependencies: `pip install -r requirements.txt`
-
-## 📊 Performance
+## 📈 Performance
 
 ### Index Sizes
-- Text index: ~768 dimensions
-- Image index: ~512 dimensions
-- Search speed: < 100ms cho 1000+ documents
+- **Text index**: 768 dimensions (PhoBERT)
+- **Image index**: 512 dimensions (CLIP)
+- **Search speed**: < 100ms cho 1000+ documents
 
 ### Memory Usage
-- Backend: ~500MB RAM
-- Frontend: ~100MB RAM
-- Indexes: ~50MB RAM
+- **Backend**: ~500MB RAM
+- **Frontend**: ~100MB RAM
+- **Indexes**: ~50MB RAM
+- **Models**: ~200MB RAM
+
+### Supported Formats
+- **Text**: .txt files
+- **Images**: .jpg, .jpeg, .png, .bmp
+- **Videos**: .mp4, .avi, .mov, .mkv
+- **Audio**: .mp3, .wav (planned)
 
 ## 🔮 Roadmap
 
 ### V1.1 (Planned)
 - [ ] Audio search support
-- [ ] Advanced filtering
-- [ ] Batch upload
-- [ ] Export results
+- [ ] Advanced filtering options
+- [ ] Batch upload functionality
+- [ ] Export results to PDF/CSV
+- [ ] User authentication
+- [ ] Search history
 
 ### V1.2 (Future)
 - [ ] Real-time search
 - [ ] Multi-language support
 - [ ] Cloud deployment
 - [ ] Mobile app
+- [ ] Voice search
+- [ ] Advanced AI models
 
 ## 🤝 Contributing
 
-1. Fork repository
-2. Tạo feature branch
-3. Commit changes
-4. Push to branch
-5. Tạo Pull Request
+### Cách đóng góp
+1. **Fork** repository
+2. **Tạo feature branch**: `git checkout -b feature/amazing-feature`
+3. **Commit changes**: `git commit -m 'Add amazing feature'`
+4. **Push to branch**: `git push origin feature/amazing-feature`
+5. **Tạo Pull Request**
 
-## 📄 License
+### Code Style
+- **Python**: PEP 8, Black formatter
+- **JavaScript**: ESLint, Prettier
+- **Documentation**: Markdown, docstrings
 
-MIT License - xem file LICENSE để biết thêm chi tiết.
+### Testing
+```bash
+# Run tests
+pytest
 
-## 📞 Support
+# Check code style
+black src/
+flake8 src/
+```
 
-Nếu gặp vấn đề, vui lòng:
-1. Kiểm tra logs
-2. Chạy `python check_status.py`
-3. Tạo issue với thông tin chi tiết
+## 📝 License
+
+MIT License - xem file [LICENSE](LICENSE) để biết thêm chi tiết.
+
+## 👥 Team
+
+- **AI Challenge HCM Team**
+- **Multimodal Search System**
+- **Vietnamese AI Assistant**
+- **FastAPI + React Stack**
+
+## 📞 Liên hệ
+
+- **Email**: team@aichallengehcm.com
+- **GitHub**: https://github.com/your-username/ai-challenge-hcm
+- **Project**: AI Challenge HCM 2025
+- **Documentation**: https://github.com/your-username/ai-challenge-hcm#readme
+
+## 🙏 Acknowledgments
+
+- **PhoBERT** cho Vietnamese text processing
+- **CLIP** cho image understanding
+- **FAISS** cho vector search
+- **FastAPI** cho backend API
+- **React** cho frontend UI
+- **AI Challenge HCM 2025** cho cơ hội phát triển
 
 ---
 
-**🎉 Chúc bạn sử dụng hệ thống hiệu quả!** 
+**Made with ❤️ for AI Challenge HCM 2025**
+
+*Hệ thống tìm kiếm đa phương thức thông minh cho tương lai AI Việt Nam* 
