@@ -107,7 +107,7 @@ function App() {
       console.log("🏆 Top 5 results:", topResults);
       
       setResults(topResults);
-      setSuccess(`Tìm thấy ${topResults.length} kết quả (sắp xếp theo score)`);
+      setSuccess(`Tìm thấy ${topResults.length} kết quả (sắp xếp theo distance - càng nhỏ càng tốt)`);
       
     } catch (err) {
       console.log("❌ General error:", err);
@@ -155,9 +155,10 @@ function App() {
         borderRadius: 10,
         marginBottom: 20
       }}>
-        <h3 style={{ marginTop: 0 }}>🔍 Tìm kiếm thông minh:</h3>
+        <h3 style={{ marginTop: 0 }}>🔍 Tìm kiếm đa phương thức:</h3>
         <p style={{ color: "#666", marginBottom: 15 }}>
-          Nhập từ khóa để tìm kiếm văn bản HOẶC upload ảnh để tìm kiếm hình ảnh tương tự
+          <strong>Text Search:</strong> Nhập từ khóa để tìm kiếm văn bản VÀ ảnh liên quan<br/>
+          <strong>Image Search:</strong> Upload ảnh để tìm kiếm hình ảnh tương tự
         </p>
 
         {/* Text Input */}
@@ -297,10 +298,10 @@ function App() {
                         padding: "2px 8px", 
                         borderRadius: "12px", 
                         fontSize: "12px",
-                        backgroundColor: r.type === "text" ? "#e3f2fd" : "#fff3e0",
-                        color: r.type === "text" ? "#1976d2" : "#f57c00"
+                        backgroundColor: r.type === "text" ? "#e3f2fd" : r.type === "static_image" ? "#fff3e0" : "#f3e5f5",
+                        color: r.type === "text" ? "#1976d2" : r.type === "static_image" ? "#f57c00" : "#7b1fa2"
                       }}>
-                        {r.type === "text" ? "📝 Text" : "🖼️ Image"}
+                        {r.type === "text" ? "📝 Text" : r.type === "static_image" ? "🖼️ Image" : "🎬 Video"}
                       </span>
                     </div>
                     {r.line && (
@@ -308,9 +309,19 @@ function App() {
                         <strong>📝 Dòng:</strong> {r.line}
                       </p>
                     )}
-                    {r.score && (
+                    {r.distance && (
                       <p style={{ margin: "0 0 5px 0" }}>
-                        <strong>⭐ Score:</strong> {r.score.toFixed(3)}
+                        <strong>📏 Distance:</strong> {r.distance}
+                        {r.source && (
+                          <span style={{ 
+                            marginLeft: "10px", 
+                            fontSize: "12px", 
+                            color: "#666",
+                            fontStyle: "italic"
+                          }}>
+                            ({r.source === "cross_modal_search" ? "Cross-modal" : "Direct search"})
+                          </span>
+                        )}
                       </p>
                     )}
                     <p style={{ margin: 0 }}>

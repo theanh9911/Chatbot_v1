@@ -3,11 +3,12 @@ from pydantic import BaseModel
 from typing import List
 from .faiss_pipeline import FaissMultiModalSearch
 from .text_pipeline import preprocess, get_embedding as get_text_emb
-from .image_pipeline import get_image_embedding
+from .image_pipeline import get_image_embedding, clip_processor, clip_model
 import os
 import logging
 from fastapi.middleware.cors import CORSMiddleware
 import base64
+import torch
 
 # Cấu hình logging
 logging.basicConfig(level=logging.INFO)
@@ -73,46 +74,135 @@ def search_text(req: TextQuery):
         raise HTTPException(status_code=400, detail="top_k must be between 1 and 50")
     
     try:
-        logger.info(f"Processing text search: '{req.query}' with top_k={req.top_k}")
-        q_clean = preprocess(req.query)
-        q_emb = get_text_emb(q_clean)
-        results = text_searcher.search(q_emb, top_k=req.top_k)
+        logger.info(f"Processing cross-modal search: '{req.query}' with top_k={req.top_k}")
         
-        # Tạo kết quả chi tiết với score cho từng result
-        detailed_results = []
-        for idx, r in enumerate(results):
-            # Tính score dựa trên distance từ FAISS (nếu có) hoặc vị trí
+        # Sử dụng CLIP cho cả text search và cross-modal để đảm bảo tính nhất quán
+        clip_text_inputs = clip_processor(text=[req.query], return_tensors="pt", padding=True, truncation=True, max_length=77)
+        with torch.no_grad():
+            clip_text_emb = clip_model.get_text_features(**clip_text_inputs)
+        clip_text_emb = clip_text_emb[0].cpu().numpy()
+        
+        logger.info(f"CLIP text embedding shape: {clip_text_emb.shape}")
+        
+        # 1. Text search với CLIP (thay vì SimCSE)
+        text_results = text_searcher.search(clip_text_emb, top_k=req.top_k)
+        logger.info(f"Found {len(text_results)} text results")
+        
+        # 2. Cross-modal: Tìm ảnh liên quan bằng cách sử dụng cùng CLIP embedding
+        image_results = []
+        if static_image_searcher:
+            try:
+                logger.info(f"Starting cross-modal search for query: '{req.query}'")
+                
+                # Sử dụng cùng CLIP embedding đã tạo ở trên
+                image_top_k = min(req.top_k // 2, 5)  # Lấy ít hơn text results
+                logger.info(f"Searching for {image_top_k} image results")
+                
+                image_results = static_image_searcher.search(clip_text_emb, top_k=image_top_k)
+                logger.info(f"Found {len(image_results)} cross-modal image results using CLIP")
+                
+                # Log chi tiết từng kết quả
+                for i, result in enumerate(image_results):
+                    logger.info(f"Image result {i+1}: {result.get('file', 'N/A')} - distance: {result.get('distance', 'N/A')}")
+                    
+                # Log cross-modal results
+                logger.info(f"Cross-modal image results found: {len(image_results)}")
+                for i, result in enumerate(image_results):
+                    distance = result.get('distance', 0)
+                    logger.info(f"Cross-modal distance for {result.get('file', 'N/A')}: {distance:.2f}")
+                    
+            except Exception as e:
+                logger.error(f"Cross-modal image search error: {e}")
+                logger.error(f"Error details: {str(e)}")
+                import traceback
+                logger.error(f"Full traceback: {traceback.format_exc()}")
+        
+        # 3. Kết hợp và xử lý kết quả
+        all_results = []
+        
+        # Xử lý text results
+        for idx, r in enumerate(text_results):
             distance = r.get('distance', None)
             if distance is not None:
-                # Chuyển đổi distance thành score (distance càng nhỏ, score càng cao)
-                import math
-                try:
-                    # Tránh overflow bằng cách giới hạn distance
-                    safe_distance = min(max(distance, -10), 10)  # Giới hạn trong [-10, 10]
-                    score = 1.0 / (1.0 + math.exp(safe_distance - 2.0))  # Normalize distance
-                    score = round(score * 100, 2)  # Chuyển thành phần trăm
-                except (OverflowError, ValueError) as e:
-                    # Fallback nếu có lỗi math
-                    logger.warning(f"Math error calculating score for distance {distance}: {e}")
-                    score = req.top_k - idx
+                # Sử dụng distance trực tiếp thay vì score
+                distance_display = round(distance, 4)
             else:
-                # Fallback: score dựa trên vị trí
-                score = req.top_k - idx
+                distance_display = req.top_k - idx
             
             detailed_result = {
                 "file": r.get('file', 'N/A'),
                 "line": r.get('line', 'N/A'),
                 "text": r.get('text', 'N/A'),
-                "description": r.get('text', 'N/A'),  # Sử dụng text làm description
-                "score": score,
-                "type": "text"
+                "description": r.get('text', 'N/A'),
+                "distance": distance_display,
+                "type": "text",
+                "source": "text_search"
             }
-            detailed_results.append(detailed_result)
+            all_results.append(detailed_result)
         
-        logger.info(f"Text search completed, found {len(detailed_results)} results with scores")
-        return {"matched_files": detailed_results}
+        # Xử lý image results (cross-modal)
+        for idx, r in enumerate(image_results):
+            distance = r.get('distance', None)
+            if distance is not None:
+                # Sử dụng distance trực tiếp thay vì score
+                distance_display = round(distance, 4)
+            else:
+                distance_display = req.top_k - idx
+            
+            # Thêm image_base64 cho image results
+            file_name = r.get('file', '')
+            image_base64 = None
+            if file_name and not r.get('is_upload'):
+                try:
+                    img_path = os.path.join("data", "images", file_name)
+                    if os.path.exists(img_path):
+                        with open(img_path, "rb") as img_file:
+                            image_base64 = base64.b64encode(img_file.read()).decode('utf-8')
+                            logger.info(f"✅ Generated image_base64 for {file_name}")
+                        detailed_result = {
+                            "file": file_name,
+                            "description": f"Ảnh {file_name}",
+                            "distance": distance_display,
+                            "type": "static_image",
+                            "source": "cross_modal",
+                            "image_base64": image_base64
+                        }
+                        all_results.append(detailed_result)
+                        logger.info(f"✅ Added cross-modal result: {file_name} | Distance: {distance_display}")
+                    else:
+                        logger.warning(f"⚠️ Image file not found: {img_path}")
+                except Exception as e:
+                    logger.error(f"❌ Error processing image {file_name}: {e}")
+            else:
+                # Nếu không có image_base64, vẫn thêm vào kết quả
+                detailed_result = {
+                    "file": file_name,
+                    "description": f"Ảnh {file_name}",
+                    "distance": distance_display,
+                    "type": "static_image",
+                    "source": "cross_modal"
+                }
+                all_results.append(detailed_result)
+                logger.info(f"✅ Added cross-modal result: {file_name} | Distance: {distance_display}")
+        
+        # Sắp xếp kết quả theo distance (càng nhỏ càng tốt)
+        all_results.sort(key=lambda x: x.get('distance', float('inf')))
+        
+        # Log final results
+        text_count = len([r for r in all_results if r.get('type') == 'text'])
+        image_count = len([r for r in all_results if r.get('type') == 'static_image'])
+        logger.info(f"Final results - Text: {text_count}, Image: {image_count}")
+        
+        for i, result in enumerate(all_results[:10]):  # Log 10 kết quả đầu
+            logger.info(f"Final result {i+1}: {result.get('file', 'N/A')} | Type: {result.get('type', 'N/A')} | Distance: {result.get('distance', 'N/A')}")
+        
+        logger.info(f"Cross-modal search completed, found {len(all_results)} total results")
+        logger.info(f"Text results: {text_count}")
+        logger.info(f"Image results: {image_count}")
+        
+        return {"matched_files": all_results}
     except Exception as e:
-        logger.error(f"Text search failed: {str(e)}")
+        logger.error(f"Cross-modal search failed: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Search failed: {str(e)}")
 
 @app.post("/search_image")
@@ -234,8 +324,8 @@ def search_image(file: UploadFile = File(...), top_k: int = 5):
             logger.warning("No results found from either searcher")
             return {"matched_files": []}
         
-        # Sắp xếp theo score (static images sẽ có score cao hơn)
-        all_results.sort(key=lambda x: x.get('score', 0), reverse=True)
+        # Sắp xếp theo distance (distance càng nhỏ càng tốt)
+        all_results.sort(key=lambda x: x.get('distance', float('inf')))
 
         # Bổ sung trường image_base64 cho mỗi kết quả
         new_results = []
@@ -244,25 +334,13 @@ def search_image(file: UploadFile = File(...), top_k: int = 5):
             file_name = r.get('file')
             image_base64 = None
             
-            # Tính score dựa trên distance từ FAISS
+            # Sử dụng distance trực tiếp thay vì score
             distance = r.get('distance', None)
             if distance is not None:
-                # Chuyển đổi distance thành score (distance càng nhỏ, score càng cao)
-                # Sử dụng sigmoid để normalize score về 0-100
-                import math
-                try:
-                    # Tránh overflow bằng cách giới hạn distance
-                    safe_distance = min(max(distance, -10), 10)  # Giới hạn trong [-10, 10]
-                    score = 1.0 / (1.0 + math.exp(safe_distance - 2.0))  # Normalize distance
-                    r['score'] = round(score * 100, 2)  # Chuyển thành phần trăm
-                    logger.info(f"Converted distance {distance} to score {r['score']}")
-                except (OverflowError, ValueError) as e:
-                    # Fallback nếu có lỗi math
-                    logger.warning(f"Math error calculating score for distance {distance}: {e}")
-                    r['score'] = round(max(0, 100 - distance * 10), 2)  # Linear conversion
+                r['distance'] = round(distance, 4)
+                logger.info(f"Using distance: {r['distance']}")
             else:
-                # Fallback: score dựa trên vị trí
-                r['score'] = top_k - idx
+                r['distance'] = top_k - idx
             
             # Xác định đường dẫn file ảnh hoặc frame đầu video
             img_path = None
@@ -361,10 +439,10 @@ def search_image(file: UploadFile = File(...), top_k: int = 5):
             
             r['image_base64'] = image_base64
             
-            # Log thông tin chi tiết về score
+            # Log thông tin chi tiết về distance
             file_type = r.get('type', 'unknown')
-            score = r.get('score', 0)
-            logger.info(f"Result {idx+1}: {file_name} | Type: {file_type} | Score: {score}")
+            distance = r.get('distance', 0)
+            logger.info(f"Result {idx+1}: {file_name} | Type: {file_type} | Distance: {distance}")
             new_results.append(r)
             
             logger.info(f"Result {idx+1}: file={file_name}, type=image, has_image={'yes' if image_base64 else 'no'}")
@@ -384,12 +462,21 @@ def search_image(file: UploadFile = File(...), top_k: int = 5):
 @app.get("/")
 def root():
     return {
-        "message": "AI Challenge HCM API - Text and Image Search",
+        "message": "AI Challenge HCM API - Multimodal Search System",
         "version": "1.0.0",
+        "features": {
+            "text_search": "Semantic text search with Vietnamese support",
+            "image_search": "Image similarity search with CLIP model",
+            "cross_modal_search": "Text query returns both text and image results",
+            "real_time_scoring": "Distance-based scoring with sigmoid normalization"
+        },
         "endpoints": {
             "text_search": "/search_text",
             "image_search": "/search_image",
-            "health": "/health"
+            "cross_modal_search": "/search_text (now includes image results)",
+            "health": "/health",
+            "debug_videos": "/debug/videos",
+            "debug_images": "/debug/static-images"
         }
     }
 

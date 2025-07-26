@@ -14,8 +14,8 @@ Hệ thống tìm kiếm đa phương thức (text + image) sử dụng FAISS v�
 ## 🚀 Tính năng chính
 
 ### 1. Text Search (Tìm kiếm văn bản)
-- **Semantic search** với PhoBERT model tiếng Việt
-- **Vietnamese text preprocessing** với stopwords
+- **CLIP model** cho text và image embedding
+- **Cross-modal search** - tìm ảnh từ text query
 - **Tìm kiếm trong file text** (.txt files)
 - **Kết quả được sắp xếp** theo độ tương đồng
 
@@ -383,7 +383,7 @@ curl -X POST "http://localhost:8001/search_text" \
 ## 📈 Performance
 
 ### Index Sizes
-- **Text index**: 768 dimensions (PhoBERT)
+- **Text index**: 512 dimensions (CLIP)
 - **Image index**: 512 dimensions (CLIP)
 - **Search speed**: < 100ms cho 1000+ documents
 

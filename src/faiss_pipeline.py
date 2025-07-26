@@ -2,6 +2,7 @@ import faiss
 import numpy as np
 import os
 import pickle
+import time
 
 class FaissMultiModalSearch:
     def __init__(self, dim=512, index_path="data/faiss_index.bin", meta_path="data/faiss_meta.pkl", nlist=100, use_ivfpq=True):
@@ -12,10 +13,23 @@ class FaissMultiModalSearch:
         self.use_ivfpq = use_ivfpq
         self.trained = False
         self.meta = []
+        
+        # Tối ưu index type dựa trên kích thước dữ liệu
         if use_ivfpq:
             quantizer = faiss.IndexFlatL2(dim)
-            self.index = faiss.IndexIVFPQ(quantizer, dim, nlist, 16, 8)
+            # Tối ưu IVF+PQ parameters
+            m = min(8, dim // 64)  # Số sub-vectors
+            bits = 8  # Bits per sub-vector
+            self.index = faiss.IndexIVFPQ(quantizer, dim, nlist, m, bits)
+            # Enable GPU nếu có
+            try:
+                res = faiss.StandardGpuResources()
+                self.index = faiss.index_cpu_to_gpu(res, 0, self.index)
+                print("✅ Using GPU acceleration")
+            except:
+                print("⚠️ GPU not available, using CPU")
         else:
+            # Sử dụng IndexFlatL2 cho dữ liệu nhỏ (< 1000 samples)
             self.index = faiss.IndexFlatL2(dim)
 
     def add(self, emb, meta):
@@ -35,21 +49,36 @@ class FaissMultiModalSearch:
     def train(self, embs):
         if self.use_ivfpq and not self.trained:
             embs = np.array(embs).astype('float32')
+            print(f"🔄 Training index with {len(embs)} samples...")
+            start_time = time.time()
             self.index.train(embs)
             self.trained = True
+            print(f"✅ Training completed in {time.time() - start_time:.2f}s")
 
     def search(self, emb, top_k=5):
         try:
             emb = np.array(emb).reshape(1, -1).astype('float32')
+            start_time = time.time()
+            
+            # Tối ưu search parameters
+            if self.use_ivfpq:
+                # Sử dụng nprobe để cân bằng tốc độ và độ chính xác
+                nprobe = min(16, self.nlist // 4)
+                self.index.nprobe = nprobe
+            
             D, I = self.index.search(emb, top_k)
+            search_time = time.time() - start_time
+            
             results = []
             for i, idx in enumerate(I[0]):
                 if idx < len(self.meta):
-                    result = self.meta[idx].copy()  # Copy để không ảnh hưởng metadata gốc
-                    result['distance'] = float(D[0][i])  # Thêm distance vào kết quả
+                    result = self.meta[idx].copy()
+                    result['distance'] = float(D[0][i])
+                    result['search_time_ms'] = round(search_time * 1000, 2)
                     results.append(result)
                 else:
                     print(f"⚠️ Warning: Index {idx} out of range (meta length: {len(self.meta)})")
+            
             return results
         except Exception as e:
             print(f"❌ Error in search: {e}")
@@ -59,9 +88,13 @@ class FaissMultiModalSearch:
 
     def save(self):
         try:
+            # Lưu index
             faiss.write_index(self.index, self.index_path)
+            
+            # Lưu metadata với compression
             with open(self.meta_path, 'wb') as f:
-                pickle.dump(self.meta, f)
+                pickle.dump(self.meta, f, protocol=pickle.HIGHEST_PROTOCOL)
+            
             print(f"✅ Saved index to {self.index_path}")
             print(f"✅ Saved metadata to {self.meta_path}")
         except Exception as e:
@@ -94,6 +127,16 @@ class FaissMultiModalSearch:
         except Exception as e:
             print(f"❌ Error loading: {e}")
             raise
+
+    def get_stats(self):
+        """Lấy thống kê về index"""
+        return {
+            "index_size": self.index.ntotal,
+            "meta_size": len(self.meta),
+            "dimension": self.dim,
+            "index_type": "IVFPQ" if self.use_ivfpq else "FlatL2",
+            "trained": self.trained if self.use_ivfpq else True
+        }
 
 if __name__ == "__main__":
     # Ví dụ build index cho text với IVF+PQ

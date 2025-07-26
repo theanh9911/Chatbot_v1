@@ -1,12 +1,12 @@
 import os
-from text_pipeline import preprocess, get_embedding as get_text_emb
-from image_pipeline import get_image_embedding
+from image_pipeline import clip_processor, clip_model, get_image_embedding
 from faiss_pipeline import FaissMultiModalSearch
+import torch
 
 print("🚀 Building indexes for AI Challenge HCM...")
 
-# Build index cho text
-print("📝 Building text index...")
+# Build index cho text (sử dụng CLIP thay vì SimCSE để đảm bảo tính nhất quán)
+print("📝 Building text index with CLIP...")
 texts = []
 metas = []
 
@@ -33,20 +33,28 @@ if os.path.exists(text_dir):
 else:
     print("⚠️ Text directory data/text/ not found")
 
-# Xử lý text sau khi đã load tất cả files
+# Xử lý text với CLIP (thay vì SimCSE)
 if texts:
-    print(f"📊 Processing {len(texts)} text entries...")
-    embs = [get_text_emb(preprocess(t)) for t in texts]
+    print(f"📊 Processing {len(texts)} text entries with CLIP...")
+    embs = []
+    for text in texts:
+        # Tạo CLIP text embedding với truncation
+        inputs = clip_processor(text=[text], return_tensors="pt", padding=True, truncation=True, max_length=77)
+        with torch.no_grad():
+            emb = clip_model.get_text_features(**inputs)
+        embs.append(emb[0].cpu().numpy())
+    
     # Sử dụng FlatL2 cho dữ liệu nhỏ, IVF+PQ cho dữ liệu lớn
     use_ivfpq = len(embs) >= 256  # Chỉ dùng IVF+PQ khi có >= 256 samples
     nlist = min(16, len(embs) // 2) if len(embs) > 1 else 1
     
-    text_searcher = FaissMultiModalSearch(dim=768, index_path="data/faiss_text.bin", meta_path="data/faiss_text.pkl", nlist=nlist, use_ivfpq=use_ivfpq)
+    # CLIP có dimension 512
+    text_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_text.bin", meta_path="data/faiss_text.pkl", nlist=nlist, use_ivfpq=use_ivfpq)
     if use_ivfpq:
         text_searcher.train(embs)
     text_searcher.add_batch(embs, metas)
     text_searcher.save()
-    print(f"✅ Text index built successfully. Samples: {len(embs)}, nlist: {nlist}, use_ivfpq: {use_ivfpq}")
+    print(f"✅ Text index built successfully with CLIP. Samples: {len(embs)}, nlist: {nlist}, use_ivfpq: {use_ivfpq}")
 else:
     print("⚠️ No text files found in data/text/")
 
@@ -92,86 +100,85 @@ try:
                         frame_path = os.path.join(vid_dir, f"{fname}_frame_{frame_count}.jpg")
                         cv2.imwrite(frame_path, image)
                         
-                        # Tạo embedding
+                        # Tạo embedding cho frame
                         emb = get_image_embedding(frame_path)
                         vid_embs.append(emb)
                         
-                        # Metadata với thông tin frame
-                        time_sec = frame_idx / fps if fps > 0 else 0
+                        # Metadata cho frame
+                        frame_time = frame_idx / fps if fps > 0 else 0
                         vid_metas.append({
-                            "file": fname, 
-                            "frame": frame_count,
-                            "time": f"{time_sec:.1f}s",
-                            "description": f"Frame {frame_count} tại {time_sec:.1f}s của video {fname}"
+                            "file": fname,
+                            "description": f"Frame {frame_count} tại {frame_time:.1f}s của video {fname}",
+                            "frame_number": frame_count,
+                            "frame_time": frame_time
                         })
                         
-                        # Cleanup
-                        os.remove(frame_path)
                         frame_count += 1
                         
-                        # Giới hạn tối đa 10 frames per video
-                        if frame_count >= 10:
-                            break
+                        # Xóa file tạm
+                        os.remove(frame_path)
                 
                 vidcap.release()
                 print(f"✅ Extracted {frame_count} frames from {fname}")
-        
-        if vid_embs:
-            # Sử dụng FlatL2 cho dữ liệu nhỏ thay vì IVF+PQ
-            use_ivfpq = len(vid_embs) >= 256  # Chỉ dùng IVF+PQ khi có >= 256 samples
-            nlist = min(4, len(vid_embs) // 2) if len(vid_embs) > 1 else 1
             
-            image_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_image.bin", meta_path="data/faiss_image.pkl", nlist=nlist, use_ivfpq=use_ivfpq)
-            if use_ivfpq:
-                image_searcher.train(vid_embs)
-            image_searcher.add_batch(vid_embs, vid_metas)
-            image_searcher.save()
-            print(f"✅ Image index built successfully. Samples: {len(vid_embs)}, nlist: {nlist}, use_ivfpq: {use_ivfpq}")
-        else:
-            print("⚠️ No video frames extracted")
+            if vid_embs:
+                # Sử dụng FlatL2 cho video frames (dữ liệu nhỏ)
+                video_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_image.bin", meta_path="data/faiss_image.pkl", use_ivfpq=False)
+                video_searcher.add_batch(vid_embs, vid_metas)
+                video_searcher.save()
+                print(f"✅ Video frames index built successfully. Samples: {len(vid_embs)}")
+            else:
+                print("⚠️ No video frames extracted")
     else:
         print("⚠️ Video directory data/vid/ not found")
         
 except ImportError:
-    print("❌ Missing opencv-python. Install with: pip install opencv-python")
+    print("⚠️ OpenCV not available, skipping video processing")
 except Exception as e:
     print(f"❌ Error processing videos: {e}")
 
-# Build index cho ảnh (nếu có data/images/)
-print("🖼️ Building image index from static images...")
-img_dir = "data/images"
-if os.path.exists(img_dir):
+# Build index cho static images
+print("🖼️ Building static image index...")
+try:
+    img_dir = "data/images"
     img_embs = []
     img_metas = []
-    image_files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
     
-    if not image_files:
-        print("⚠️ No image files found in data/images/")
-    else:
-        for fname in image_files:
-            fpath = os.path.join(img_dir, fname)
-            emb = get_image_embedding(fpath)
-            img_embs.append(emb)
-            img_metas.append({"file": fname, "description": f"Ảnh {fname}"})
-            print(f"🖼️ Processed image: {fname}")
+    if os.path.exists(img_dir):
+        image_files = [f for f in os.listdir(img_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png', '.bmp'))]
         
-        if img_embs:
-            nlist = min(8, len(img_embs) // 2) if len(img_embs) > 1 else 1
-            use_ivfpq = len(img_embs) >= 256  # Chỉ dùng IVF+PQ khi có >= 256 samples
-            image_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_image_img.bin", meta_path="data/faiss_image_img.pkl", nlist=nlist, use_ivfpq=use_ivfpq)
-            if use_ivfpq:
-                image_searcher.train(img_embs)
-            image_searcher.add_batch(img_embs, img_metas)
-            image_searcher.save()
-            print(f"✅ Static image index built successfully. Samples: {len(img_embs)}, nlist: {nlist}, use_ivfpq: {use_ivfpq}")
+        if not image_files:
+            print("⚠️ No image files found in data/images/")
         else:
-            print("⚠️ No valid images processed")
-else:
-    print("⚠️ Image directory data/images/ not found")
+            print(f"📁 Found {len(image_files)} image files: {image_files}")
+            
+            for fname in image_files:
+                img_path = os.path.join(img_dir, fname)
+                print(f"🖼️ Processing image: {fname}")
+                
+                # Tạo embedding cho image
+                emb = get_image_embedding(img_path)
+                img_embs.append(emb)
+                
+                # Metadata cho image
+                img_metas.append({
+                    "file": fname,
+                    "description": f"Ảnh {fname}",
+                    "type": "static_image"
+                })
+            
+            if img_embs:
+                # Sử dụng FlatL2 cho static images (dữ liệu nhỏ)
+                static_image_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_image_img.bin", meta_path="data/faiss_image_img.pkl", use_ivfpq=False)
+                static_image_searcher.add_batch(img_embs, img_metas)
+                static_image_searcher.save()
+                print(f"✅ Static images index built successfully. Samples: {len(img_embs)}")
+            else:
+                print("⚠️ No static images processed")
+    else:
+        print("⚠️ Images directory data/images/ not found")
+        
+except Exception as e:
+    print(f"❌ Error processing static images: {e}")
 
-print("🎉 Index building completed!")
-print("📁 Generated files:")
-print("  - data/faiss_text.bin (text index)")
-print("  - data/faiss_text.pkl (text metadata)")
-print("  - data/faiss_image.bin (image index)")
-print("  - data/faiss_image.pkl (image metadata)") 
+print("🎉 All indexes built successfully!") 
