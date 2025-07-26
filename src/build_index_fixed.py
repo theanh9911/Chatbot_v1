@@ -49,12 +49,12 @@ if texts:
     nlist = min(16, len(embs) // 2) if len(embs) > 1 else 1
     
     # CLIP có dimension 512
-    text_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_text.bin", meta_path="data/faiss_text.pkl", nlist=nlist, use_ivfpq=use_ivfpq)
+    text_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_text.bin", meta_path="data/faiss_text.pkl", nlist=nlist, use_ivfpq=use_ivfpq, use_cosine=True)
     if use_ivfpq:
         text_searcher.train(embs)
     text_searcher.add_batch(embs, metas)
     text_searcher.save()
-    print(f"✅ Text index built successfully with CLIP. Samples: {len(embs)}, nlist: {nlist}, use_ivfpq: {use_ivfpq}")
+    print(f"✅ Text index built successfully with CLIP + Cosine. Samples: {len(embs)}, nlist: {nlist}, use_ivfpq: {use_ivfpq}")
 else:
     print("⚠️ No text files found in data/text/")
 
@@ -122,11 +122,11 @@ try:
                 print(f"✅ Extracted {frame_count} frames from {fname}")
             
             if vid_embs:
-                # Sử dụng FlatL2 cho video frames (dữ liệu nhỏ)
-                video_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_image.bin", meta_path="data/faiss_image.pkl", use_ivfpq=False)
+                # Sử dụng FlatIP cho video frames với cosine similarity
+                video_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_image.bin", meta_path="data/faiss_image.pkl", use_ivfpq=False, use_cosine=True)
                 video_searcher.add_batch(vid_embs, vid_metas)
                 video_searcher.save()
-                print(f"✅ Video frames index built successfully. Samples: {len(vid_embs)}")
+                print(f"✅ Video frames index built successfully with Cosine. Samples: {len(vid_embs)}")
             else:
                 print("⚠️ No video frames extracted")
     else:
@@ -168,11 +168,11 @@ try:
                 })
             
             if img_embs:
-                # Sử dụng FlatL2 cho static images (dữ liệu nhỏ)
-                static_image_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_image_img.bin", meta_path="data/faiss_image_img.pkl", use_ivfpq=False)
+                # Sử dụng FlatIP cho static images với cosine similarity
+                static_image_searcher = FaissMultiModalSearch(dim=512, index_path="data/faiss_image_img.bin", meta_path="data/faiss_image_img.pkl", use_ivfpq=False, use_cosine=True)
                 static_image_searcher.add_batch(img_embs, img_metas)
                 static_image_searcher.save()
-                print(f"✅ Static images index built successfully. Samples: {len(img_embs)}")
+                print(f"✅ Static images index built successfully with Cosine. Samples: {len(img_embs)}")
             else:
                 print("⚠️ No static images processed")
     else:

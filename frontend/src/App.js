@@ -31,13 +31,15 @@ function App() {
           console.log("📝 Text search response:", textData);
           
           if (textRes.ok && textData.matched_files) {
-            const textResults = textData.matched_files.map(item => ({
+            // Xử lý cả text và image results từ cross-modal search
+            const processedResults = textData.matched_files.map(item => ({
               ...item,
-              type: "text",
-              source: "text_search"
+              // Đảm bảo type được set đúng
+              type: item.type || (item.file && item.file.includes('.txt') ? 'text' : 'static_image'),
+              source: item.source || 'text_search'
             }));
-            allResults.push(...textResults);
-            console.log("✅ Added", textResults.length, "text results");
+            allResults.push(...processedResults);
+            console.log("✅ Added", processedResults.length, "results from cross-modal search");
           }
         } catch (err) {
           console.log("❌ Text search error:", err);
@@ -69,8 +71,8 @@ function App() {
           if (imageRes.ok && imageData.matched_files) {
             const imageResults = imageData.matched_files.map(item => ({
               ...item,
-              type: "image",
-              source: "image_search"
+              type: item.type || 'image',
+              source: item.source || 'image_search'
             }));
             allResults.push(...imageResults);
             console.log("✅ Added", imageResults.length, "image results");
@@ -98,13 +100,13 @@ function App() {
         return;
       }
 
-      // Sắp xếp theo score cao nhất
-      allResults.sort((a, b) => (b.score || 0) - (a.score || 0));
-      console.log("📊 Results after sorting:", allResults);
+      // Sắp xếp theo distance (càng nhỏ càng tốt)
+      allResults.sort((a, b) => (a.distance || 0) - (b.distance || 0));
+      console.log("📊 Results after sorting by distance:", allResults);
       
-      // Lấy top 5 kết quả có score cao nhất
-      const topResults = allResults.slice(0, 5);
-      console.log("🏆 Top 5 results:", topResults);
+      // Lấy top 10 kết quả có distance thấp nhất
+      const topResults = allResults.slice(0, 10);
+      console.log("🏆 Top 10 results:", topResults);
       
       setResults(topResults);
       setSuccess(`Tìm thấy ${topResults.length} kết quả (sắp xếp theo distance - càng nhỏ càng tốt)`);

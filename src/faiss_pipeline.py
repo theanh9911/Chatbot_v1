@@ -5,22 +5,27 @@ import pickle
 import time
 
 class FaissMultiModalSearch:
-    def __init__(self, dim=512, index_path="data/faiss_index.bin", meta_path="data/faiss_meta.pkl", nlist=100, use_ivfpq=True):
+    def __init__(self, dim=512, index_path="data/faiss_index.bin", meta_path="data/faiss_meta.pkl", nlist=100, use_ivfpq=True, use_cosine=True):
         self.dim = dim
         self.index_path = index_path
         self.meta_path = meta_path
         self.nlist = nlist
         self.use_ivfpq = use_ivfpq
+        self.use_cosine = use_cosine
         self.trained = False
         self.meta = []
         
         # Tối ưu index type dựa trên kích thước dữ liệu
         if use_ivfpq:
-            quantizer = faiss.IndexFlatL2(dim)
-            # Tối ưu IVF+PQ parameters
-            m = min(8, dim // 64)  # Số sub-vectors
-            bits = 8  # Bits per sub-vector
-            self.index = faiss.IndexIVFPQ(quantizer, dim, nlist, m, bits)
+            if use_cosine:
+                # Sử dụng IndexFlatIP cho cosine similarity
+                self.index = faiss.IndexFlatIP(dim)
+            else:
+                quantizer = faiss.IndexFlatL2(dim)
+                # Tối ưu IVF+PQ parameters
+                m = min(8, dim // 64)  # Số sub-vectors
+                bits = 8  # Bits per sub-vector
+                self.index = faiss.IndexIVFPQ(quantizer, dim, nlist, m, bits)
             # Enable GPU nếu có
             try:
                 res = faiss.StandardGpuResources()
@@ -29,11 +34,24 @@ class FaissMultiModalSearch:
             except:
                 print("⚠️ GPU not available, using CPU")
         else:
-            # Sử dụng IndexFlatL2 cho dữ liệu nhỏ (< 1000 samples)
-            self.index = faiss.IndexFlatL2(dim)
+            # Sử dụng IndexFlatIP cho cosine hoặc IndexFlatL2 cho L2
+            if use_cosine:
+                self.index = faiss.IndexFlatIP(dim)
+            else:
+                self.index = faiss.IndexFlatL2(dim)
+
+    def normalize_embedding(self, emb):
+        """Normalize embedding để sử dụng cosine similarity"""
+        if self.use_cosine:
+            # L2 normalize cho cosine similarity
+            norm = np.linalg.norm(emb)
+            if norm > 0:
+                return emb / norm
+        return emb
 
     def add(self, emb, meta):
         emb = np.array(emb).reshape(1, -1).astype('float32')
+        emb = self.normalize_embedding(emb)
         if self.use_ivfpq and not self.trained:
             raise RuntimeError("Index chưa được train! Hãy gọi train trước khi add.")
         self.index.add(emb)
@@ -41,6 +59,11 @@ class FaissMultiModalSearch:
 
     def add_batch(self, embs, metas):
         embs = np.array(embs).astype('float32')
+        # Normalize tất cả embeddings
+        if self.use_cosine:
+            norms = np.linalg.norm(embs, axis=1, keepdims=True)
+            norms[norms == 0] = 1  # Tránh division by zero
+            embs = embs / norms
         if self.use_ivfpq and not self.trained:
             raise RuntimeError("Index chưa được train! Hãy gọi train trước khi add.")
         self.index.add(embs)
@@ -49,6 +72,11 @@ class FaissMultiModalSearch:
     def train(self, embs):
         if self.use_ivfpq and not self.trained:
             embs = np.array(embs).astype('float32')
+            # Normalize training data
+            if self.use_cosine:
+                norms = np.linalg.norm(embs, axis=1, keepdims=True)
+                norms[norms == 0] = 1
+                embs = embs / norms
             print(f"🔄 Training index with {len(embs)} samples...")
             start_time = time.time()
             self.index.train(embs)
@@ -58,10 +86,11 @@ class FaissMultiModalSearch:
     def search(self, emb, top_k=5):
         try:
             emb = np.array(emb).reshape(1, -1).astype('float32')
+            emb = self.normalize_embedding(emb)
             start_time = time.time()
             
             # Tối ưu search parameters
-            if self.use_ivfpq:
+            if self.use_ivfpq and not self.use_cosine:
                 # Sử dụng nprobe để cân bằng tốc độ và độ chính xác
                 nprobe = min(16, self.nlist // 4)
                 self.index.nprobe = nprobe
@@ -73,7 +102,15 @@ class FaissMultiModalSearch:
             for i, idx in enumerate(I[0]):
                 if idx < len(self.meta):
                     result = self.meta[idx].copy()
-                    result['distance'] = float(D[0][i])
+                    # Chuyển đổi distance dựa trên metric
+                    if self.use_cosine:
+                        # Cosine similarity: càng cao càng tốt, chuyển thành distance
+                        similarity = float(D[0][i])
+                        distance = 1.0 - similarity  # Chuyển thành distance (0-2)
+                    else:
+                        # L2 distance: càng thấp càng tốt
+                        distance = float(D[0][i])
+                    result['distance'] = distance
                     result['search_time_ms'] = round(search_time * 1000, 2)
                     results.append(result)
                 else:
@@ -134,7 +171,8 @@ class FaissMultiModalSearch:
             "index_size": self.index.ntotal,
             "meta_size": len(self.meta),
             "dimension": self.dim,
-            "index_type": "IVFPQ" if self.use_ivfpq else "FlatL2",
+            "index_type": "IVFPQ" if self.use_ivfpq else "FlatIP" if self.use_cosine else "FlatL2",
+            "distance_metric": "cosine" if self.use_cosine else "L2",
             "trained": self.trained if self.use_ivfpq else True
         }
 
